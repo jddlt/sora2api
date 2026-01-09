@@ -38,6 +38,8 @@ class Token(BaseModel):
     # 并发限制
     image_concurrency: int = -1  # 图片并发数限制，-1表示不限制
     video_concurrency: int = -1  # 视频并发数限制，-1表示不限制
+    # 过期标记
+    is_expired: bool = False  # Token是否已过期（401 token_invalidated）
 
 class TokenStats(BaseModel):
     """Token statistics"""

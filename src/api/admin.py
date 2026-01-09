@@ -1,7 +1,9 @@
 """Admin routes - Management endpoints"""
 from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime
+from pathlib import Path
 import secrets
 from pydantic import BaseModel
 from ..core.auth import AuthManager
@@ -97,6 +99,7 @@ class ImportTokenItem(BaseModel):
     access_token: str  # Access Token (AT)
     session_token: Optional[str] = None  # Session Token (ST)
     refresh_token: Optional[str] = None  # Refresh Token (RT)
+    client_id: Optional[str] = None  # Client ID (optional, for compatibility)
     proxy_url: Optional[str] = None  # Proxy URL (optional, for compatibility)
     remark: Optional[str] = None  # Remark (optional, for compatibility)
     is_active: bool = True  # Active status
@@ -364,6 +367,7 @@ async def import_tokens(request: ImportTokensRequest, token: str = Depends(verif
                     token=import_item.access_token,
                     st=import_item.session_token,
                     rt=import_item.refresh_token,
+                    client_id=import_item.client_id,
                     proxy_url=import_item.proxy_url,
                     remark=import_item.remark,
                     image_enabled=import_item.image_enabled,
@@ -392,6 +396,7 @@ async def import_tokens(request: ImportTokensRequest, token: str = Depends(verif
                     token_value=import_item.access_token,
                     st=import_item.session_token,
                     rt=import_item.refresh_token,
+                    client_id=import_item.client_id,
                     proxy_url=import_item.proxy_url,
                     remark=import_item.remark,
                     update_if_exists=False,
@@ -963,3 +968,18 @@ async def update_at_auto_refresh_enabled(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update AT auto refresh enabled status: {str(e)}")
+
+# Debug logs download endpoint
+@router.get("/api/admin/logs/download")
+async def download_debug_logs(token: str = Depends(verify_admin_token)):
+    """Download debug logs file (logs.txt)"""
+    log_file = Path("logs.txt")
+
+    if not log_file.exists():
+        raise HTTPException(status_code=404, detail="日志文件不存在")
+
+    return FileResponse(
+        path=str(log_file),
+        filename="logs.txt",
+        media_type="text/plain"
+    )

@@ -15,17 +15,21 @@ class DebugLogger:
     
     def _setup_logger(self):
         """Setup file logger"""
+        # Clear log file on startup
+        if self.log_file.exists():
+            self.log_file.unlink()
+
         # Create logger
         self.logger = logging.getLogger("debug_logger")
         self.logger.setLevel(logging.DEBUG)
-        
+
         # Remove existing handlers
         self.logger.handlers.clear()
-        
+
         # Create file handler
         file_handler = logging.FileHandler(
-            self.log_file, 
-            mode='a', 
+            self.log_file,
+            mode='a',
             encoding='utf-8'
         )
         file_handler.setLevel(logging.DEBUG)

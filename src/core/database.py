@@ -198,6 +198,7 @@ class Database:
                     ("video_concurrency", "INTEGER DEFAULT -1"),
                     ("client_id", "TEXT"),
                     ("proxy_url", "TEXT"),
+                    ("is_expired", "BOOLEAN DEFAULT 0"),
                 ]
 
                 for col_name, col_type in columns_to_add:
@@ -310,7 +311,8 @@ class Database:
                     image_enabled BOOLEAN DEFAULT 1,
                     video_enabled BOOLEAN DEFAULT 1,
                     image_concurrency INTEGER DEFAULT -1,
-                    video_concurrency INTEGER DEFAULT -1
+                    video_concurrency INTEGER DEFAULT -1,
+                    is_expired BOOLEAN DEFAULT 0
                 )
             """)
 
@@ -570,7 +572,23 @@ class Database:
                 UPDATE tokens SET is_active = ? WHERE id = ?
             """, (is_active, token_id))
             await db.commit()
-    
+
+    async def mark_token_expired(self, token_id: int):
+        """Mark token as expired and disable it"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE tokens SET is_expired = 1, is_active = 0 WHERE id = ?
+            """, (token_id,))
+            await db.commit()
+
+    async def clear_token_expired(self, token_id: int):
+        """Clear token expired flag"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE tokens SET is_expired = 0 WHERE id = ?
+            """, (token_id,))
+            await db.commit()
+
     async def update_token_sora2(self, token_id: int, supported: bool, invite_code: Optional[str] = None,
                                 redeemed_count: int = 0, total_count: int = 0, remaining_count: int = 0):
         """Update token Sora2 support info"""

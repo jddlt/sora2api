@@ -86,6 +86,15 @@ class TokenManager:
             )
 
             if response.status_code != 200:
+                # Check for token_invalidated error
+                if response.status_code == 401:
+                    try:
+                        error_data = response.json()
+                        error_code = error_data.get("error", {}).get("code", "")
+                        if error_code == "token_invalidated":
+                            raise ValueError(f"401 token_invalidated: Token has been invalidated")
+                    except (ValueError, KeyError):
+                        pass
                 raise ValueError(f"Failed to get user info: {response.status_code}")
 
             return response.json()
@@ -900,6 +909,17 @@ class TokenManager:
                                    image_enabled=image_enabled, video_enabled=video_enabled,
                                    image_concurrency=image_concurrency, video_concurrency=video_concurrency)
 
+        # If token (AT) is updated, test it and clear expired flag if valid
+        if token:
+            try:
+                test_result = await self.test_token(token_id)
+                if test_result.get("valid"):
+                    # Token is valid, enable it and clear expired flag
+                    await self.db.update_token_status(token_id, True)
+                    await self.db.clear_token_expired(token_id)
+            except Exception:
+                pass  # Ignore test errors during update
+
     async def get_active_tokens(self) -> List[Token]:
         """Get all active tokens (not cooled down)"""
         return await self.db.get_active_tokens()
@@ -917,6 +937,8 @@ class TokenManager:
         await self.db.update_token_status(token_id, True)
         # Reset error count when enabling (in token_stats table)
         await self.db.reset_error_count(token_id)
+        # Clear expired flag when enabling
+        await self.db.clear_token_expired(token_id)
 
     async def disable_token(self, token_id: int):
         """Disable a token"""
@@ -960,6 +982,9 @@ class TokenManager:
                 remaining_count=sora2_remaining_count
             )
 
+            # Clear expired flag if token is valid
+            await self.db.clear_token_expired(token_id)
+
             return {
                 "valid": True,
                 "message": "Token is valid",
@@ -972,9 +997,18 @@ class TokenManager:
                 "sora2_remaining_count": sora2_remaining_count
             }
         except Exception as e:
+            error_msg = str(e)
+            # Check if error is 401 with token_invalidated
+            if "401" in error_msg and "token_invalidated" in error_msg.lower():
+                # Mark token as expired
+                await self.db.mark_token_expired(token_id)
+                return {
+                    "valid": False,
+                    "message": "Token已过期（token_invalidated）"
+                }
             return {
                 "valid": False,
-                "message": f"Token is invalid: {str(e)}"
+                "message": f"Token is invalid: {error_msg}"
             }
 
     async def record_usage(self, token_id: int, is_video: bool = False):
