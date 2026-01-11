@@ -1,15 +1,17 @@
 """Admin routes - Management endpoints"""
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import FileResponse
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-import secrets
+import jwt
 from pydantic import BaseModel
 from ..core.auth import AuthManager
 from ..core.config import config
 from ..services.token_manager import TokenManager
 from ..services.proxy_manager import ProxyManager
+from ..services.sora_client import SoraClient
 from ..services.concurrency_manager import ConcurrencyManager
 from ..core.database import Database
 from ..core.models import Token, AdminConfig, ProxyConfig
@@ -23,8 +25,8 @@ db: Database = None
 generation_handler = None
 concurrency_manager: ConcurrencyManager = None
 
-# Store active admin tokens (in production, use Redis or database)
-active_admin_tokens = set()
+# JWT token expiration (90 days / 3 months)
+JWT_EXPIRATION_DAYS = 90
 
 def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, gh=None, cm: ConcurrencyManager = None):
     """Set dependencies"""
@@ -34,6 +36,28 @@ def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, gh=
     db = database
     generation_handler = gh
     concurrency_manager = cm
+
+def create_admin_jwt_token(username: str) -> str:
+    """Create a JWT token for admin authentication"""
+    payload = {
+        "sub": username,
+        "type": "admin",
+        "exp": datetime.utcnow() + timedelta(days=JWT_EXPIRATION_DAYS),
+        "iat": datetime.utcnow()
+    }
+    return jwt.encode(payload, config.jwt_secret_key, algorithm="HS256")
+
+def verify_admin_jwt_token(token: str) -> dict:
+    """Verify admin JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, config.jwt_secret_key, algorithms=["HS256"])
+        if payload.get("type") != "admin":
+            raise ValueError("Invalid token type")
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token has expired")
+    except jwt.InvalidTokenError as e:
+        raise ValueError(f"Invalid token: {str(e)}")
 
 def verify_admin_token(authorization: str = Header(None)):
     """Verify admin token from Authorization header"""
@@ -45,10 +69,11 @@ def verify_admin_token(authorization: str = Header(None)):
     if authorization.startswith("Bearer "):
         token = authorization[7:]
 
-    if token not in active_admin_tokens:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    return token
+    try:
+        verify_admin_jwt_token(token)
+        return token
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 # Request/Response models
 class LoginRequest(BaseModel):
@@ -96,6 +121,7 @@ class UpdateTokenRequest(BaseModel):
 
 class ImportTokenItem(BaseModel):
     email: str  # Email (primary key, required)
+    password: Optional[str] = None  # Account password (optional)
     access_token: Optional[str] = None  # Access Token (AT, optional for st/rt modes)
     session_token: Optional[str] = None  # Session Token (ST)
     refresh_token: Optional[str] = None  # Refresh Token (RT)
@@ -107,6 +133,13 @@ class ImportTokenItem(BaseModel):
     video_enabled: bool = True  # Enable video generation
     image_concurrency: int = -1  # Image concurrency limit
     video_concurrency: int = -1  # Video concurrency limit
+    sessionToken: Optional[str] = None  # Alias for session_token (camelCase)
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Support camelCase alias for session_token
+        if self.sessionToken and not self.session_token:
+            self.session_token = self.sessionToken
 
 class ImportTokensRequest(BaseModel):
     tokens: List[ImportTokenItem]
@@ -151,10 +184,8 @@ class UpdateWatermarkFreeConfigRequest(BaseModel):
 async def login(request: LoginRequest):
     """Admin login"""
     if AuthManager.verify_admin(request.username, request.password):
-        # Generate simple token
-        token = f"admin-{secrets.token_urlsafe(32)}"
-        # Store token in active tokens
-        active_admin_tokens.add(token)
+        # Generate JWT token
+        token = create_admin_jwt_token(request.username)
         return LoginResponse(success=True, token=token, message="Login successful")
     else:
         return LoginResponse(success=False, message="Invalid credentials")
@@ -162,8 +193,7 @@ async def login(request: LoginRequest):
 @router.post("/api/logout")
 async def logout(token: str = Depends(verify_admin_token)):
     """Admin logout"""
-    # Remove token from active tokens
-    active_admin_tokens.discard(token)
+    # JWT is stateless, just return success (client should clear the token)
     return {"success": True, "message": "Logged out successfully"}
 
 # Token management endpoints
@@ -210,7 +240,11 @@ async def get_tokens(token: str = Depends(verify_admin_token)) -> List[dict]:
             "video_enabled": token.video_enabled,
             # 并发限制
             "image_concurrency": token.image_concurrency,
-            "video_concurrency": token.video_concurrency
+            "video_concurrency": token.video_concurrency,
+            # 错误信息
+            "last_error": token.last_error,
+            # 手机验证
+            "is_phone_verified": token.is_phone_verified
         })
 
     return result
@@ -314,9 +348,20 @@ async def disable_token(token_id: int, token: str = Depends(verify_admin_token))
 
 @router.post("/api/tokens/{token_id}/test")
 async def test_token(token_id: int, token: str = Depends(verify_admin_token)):
-    """Test if a token is valid and refresh Sora2 info"""
+    """Test if a token is valid and refresh Sora2 info. Auto enable/disable based on result."""
     try:
         result = await token_manager.test_token(token_id)
+
+        if result.get("valid"):
+            # Test passed: enable token and clear error
+            await token_manager.enable_token(token_id)
+            await db.update_token_last_error(token_id, None)
+        else:
+            # Test failed: disable token and record error
+            error_msg = result.get("message", "Unknown error")
+            await token_manager.disable_token(token_id)
+            await db.update_token_last_error(token_id, error_msg)
+
         response = {
             "success": True,
             "status": "success" if result["valid"] else "failed",
@@ -337,7 +382,82 @@ async def test_token(token_id: int, token: str = Depends(verify_admin_token)):
 
         return response
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Exception: disable token and record error
+        error_msg = str(e)
+        await token_manager.disable_token(token_id)
+        await db.update_token_last_error(token_id, error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+
+@router.post("/api/tokens/batch-test")
+async def batch_test_tokens(token: str = Depends(verify_admin_token)):
+    """Batch test all tokens: enable valid ones, disable invalid ones with error message"""
+    tokens = await token_manager.get_all_tokens()
+
+    if not tokens:
+        return {
+            "success": True,
+            "message": "No tokens to test",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "results": []
+        }
+
+    results = []
+    passed = 0
+    failed = 0
+
+    for token_obj in tokens:
+        try:
+            result = await token_manager.test_token(token_obj.id)
+
+            if result.get("valid"):
+                # Test passed: enable token and clear error
+                await token_manager.enable_token(token_obj.id)
+                await db.update_token_last_error(token_obj.id, None)
+                passed += 1
+                results.append({
+                    "token_id": token_obj.id,
+                    "email": token_obj.email,
+                    "success": True,
+                    "message": "Token有效",
+                    "action": "enabled"
+                })
+            else:
+                # Test failed: disable token and record error
+                error_msg = result.get("message", "Unknown error")
+                await token_manager.disable_token(token_obj.id)
+                await db.update_token_last_error(token_obj.id, error_msg)
+                failed += 1
+                results.append({
+                    "token_id": token_obj.id,
+                    "email": token_obj.email,
+                    "success": False,
+                    "message": error_msg,
+                    "action": "disabled"
+                })
+        except Exception as e:
+            # Exception: disable token and record error
+            error_msg = str(e)
+            await token_manager.disable_token(token_obj.id)
+            await db.update_token_last_error(token_obj.id, error_msg)
+            failed += 1
+            results.append({
+                "token_id": token_obj.id,
+                "email": token_obj.email,
+                "success": False,
+                "message": error_msg,
+                "action": "disabled"
+            })
+
+    return {
+        "success": True,
+        "message": f"Batch test completed: {passed} passed, {failed} failed",
+        "total": len(tokens),
+        "passed": passed,
+        "failed": failed,
+        "results": results
+    }
 
 @router.delete("/api/tokens/{token_id}")
 async def delete_token(token_id: int, token: str = Depends(verify_admin_token)):
@@ -347,6 +467,139 @@ async def delete_token(token_id: int, token: str = Depends(verify_admin_token)):
         return {"success": True, "message": "Token deleted"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+class BatchUpdateRequest(BaseModel):
+    token_ids: List[int]
+
+@router.post("/api/tokens/batch-update")
+async def batch_update_tokens(request: BatchUpdateRequest, token: str = Depends(verify_admin_token)):
+    """Batch update tokens by IDs (refresh AT and update account info) - concurrent"""
+
+    async def update_single(token_id: int):
+        try:
+            result = await token_manager.test_token(token_id)
+            if result.get("valid"):
+                return {
+                    "token_id": token_id,
+                    "email": result.get("email"),
+                    "success": True,
+                    "message": "更新成功"
+                }
+            else:
+                return {
+                    "token_id": token_id,
+                    "success": False,
+                    "message": result.get("message", "更新失败")
+                }
+        except Exception as e:
+            return {
+                "token_id": token_id,
+                "success": False,
+                "message": str(e)
+            }
+
+    # 并发执行所有更新任务
+    results = await asyncio.gather(*[update_single(tid) for tid in request.token_ids])
+
+    updated = sum(1 for r in results if r["success"])
+    failed = len(results) - updated
+
+    return {
+        "success": True,
+        "message": f"批量更新完成: {updated} 成功, {failed} 失败",
+        "updated": updated,
+        "failed": failed,
+        "results": results
+    }
+
+class BatchDeleteRequest(BaseModel):
+    token_ids: List[int]
+
+@router.post("/api/tokens/batch-delete")
+async def batch_delete_tokens(request: BatchDeleteRequest, token: str = Depends(verify_admin_token)):
+    """Batch delete tokens by IDs"""
+    deleted = 0
+    errors = []
+
+    for token_id in request.token_ids:
+        try:
+            await token_manager.delete_token(token_id)
+            deleted += 1
+        except Exception as e:
+            errors.append({"token_id": token_id, "error": str(e)})
+
+    return {
+        "success": True,
+        "message": f"批量删除完成: {deleted} 成功, {len(errors)} 失败",
+        "deleted": deleted,
+        "failed": len(errors),
+        "errors": errors
+    }
+
+# Phone binding request models
+class SendPhoneCodeRequest(BaseModel):
+    phone_number: str  # Phone number with country code (e.g., +1234567890)
+
+class VerifyPhoneCodeRequest(BaseModel):
+    phone_number: str  # Phone number with country code
+    verification_code: str  # 6-digit verification code
+
+@router.post("/api/tokens/{token_id}/phone/send-code")
+async def send_phone_verification_code(token_id: int, request: SendPhoneCodeRequest, token: str = Depends(verify_admin_token)):
+    """Send phone verification code for binding"""
+    try:
+        # Get token from database
+        token_obj = await db.get_token(token_id)
+        if not token_obj:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        # Create SoraClient instance
+        sora_client = SoraClient(proxy_manager)
+
+        # Send verification code
+        result = await sora_client.send_phone_verification_code(
+            phone_number=request.phone_number,
+            token=token_obj.token,
+            token_id=token_id
+        )
+
+        if result.get("success"):
+            return {"success": True, "message": result.get("message", "验证码已发送")}
+        else:
+            return {"success": False, "message": result.get("message", "发送失败"), "error_code": result.get("error_code")}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/tokens/{token_id}/phone/verify")
+async def verify_phone_code(token_id: int, request: VerifyPhoneCodeRequest, token: str = Depends(verify_admin_token)):
+    """Verify phone code and complete binding"""
+    try:
+        # Get token from database
+        token_obj = await db.get_token(token_id)
+        if not token_obj:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        # Create SoraClient instance
+        sora_client = SoraClient(proxy_manager)
+
+        # Submit verification code
+        result = await sora_client.submit_phone_verification_code(
+            phone_number=request.phone_number,
+            verification_code=request.verification_code,
+            token=token_obj.token,
+            token_id=token_id
+        )
+
+        if result.get("success"):
+            # Update phone verified status in database
+            await db.update_token_phone_verified(token_id, True)
+            return {"success": True, "message": result.get("message", "绑定成功")}
+        else:
+            return {"success": False, "message": result.get("message", "绑定失败")}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/tokens/import")
 async def import_tokens(request: ImportTokensRequest, token: str = Depends(verify_admin_token)):
@@ -421,6 +674,7 @@ async def import_tokens(request: ImportTokensRequest, token: str = Depends(verif
                 await token_manager.update_token(
                     token_id=existing_token.id,
                     token=access_token,
+                    password=import_item.password,
                     st=import_item.session_token,
                     rt=import_item.refresh_token,
                     client_id=import_item.client_id,
@@ -451,6 +705,7 @@ async def import_tokens(request: ImportTokensRequest, token: str = Depends(verif
                 # Add new token
                 new_token = await token_manager.add_token(
                     token_value=access_token,
+                    password=import_item.password,
                     st=import_item.session_token,
                     rt=import_item.refresh_token,
                     client_id=import_item.client_id,
@@ -589,8 +844,8 @@ async def update_admin_password(
         if request.username:
             config.set_admin_username_from_db(request.username)
 
-        # Invalidate all admin tokens (force re-login)
-        active_admin_tokens.clear()
+        # JWT tokens will be invalidated automatically since password changed
+        # Client needs to re-login to get a new token
 
         return {"success": True, "message": "Password updated successfully. Please login again."}
     except HTTPException:

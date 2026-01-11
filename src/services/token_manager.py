@@ -66,15 +66,26 @@ class TokenManager:
         async with AsyncSession() as session:
             headers = {
                 "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
                 "Origin": "https://sora.chatgpt.com",
-                "Referer": "https://sora.chatgpt.com/"
+                "Pragma": "no-cache",
+                "Priority": "u=1, i",
+                "Referer": "https://sora.chatgpt.com/",
+                "Sec-Ch-Ua": '"Not_A Brand"; v="8", "Chromium"; v="120", "Safari"; v="17"',
+                "Sec-Ch-Ua-Mobile": "?1",
+                "Sec-Ch-Ua-Platform": '"iOS"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin"
             }
 
             kwargs = {
                 "headers": headers,
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -97,7 +108,13 @@ class TokenManager:
                         pass
                 raise ValueError(f"Failed to get user info: {response.status_code}")
 
-            return response.json()
+            data = response.json()
+            print(f"\n{'='*60}")
+            print(f"📋 [/me] 完整响应:")
+            import json
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+            print(f"{'='*60}\n")
+            return data
 
     async def get_subscription_info(self, token: str, token_id: Optional[int] = None, proxy_url: Optional[str] = None) -> Dict[str, Any]:
         """Get subscription information from Sora API
@@ -124,7 +141,7 @@ class TokenManager:
             kwargs = {
                 "headers": headers,
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -181,13 +198,26 @@ class TokenManager:
         async with AsyncSession() as session:
             headers = {
                 "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json"
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+                "Origin": "https://sora.chatgpt.com",
+                "Pragma": "no-cache",
+                "Priority": "u=1, i",
+                "Referer": "https://sora.chatgpt.com/",
+                "Sec-Ch-Ua": '"Not_A Brand"; v="8", "Chromium"; v="120", "Safari"; v="17"',
+                "Sec-Ch-Ua-Mobile": "?1",
+                "Sec-Ch-Ua-Platform": '"iOS"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin"
             }
 
             kwargs = {
                 "headers": headers,
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -289,13 +319,26 @@ class TokenManager:
         async with AsyncSession() as session:
             headers = {
                 "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json"
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+                "Origin": "https://sora.chatgpt.com",
+                "Pragma": "no-cache",
+                "Priority": "u=1, i",
+                "Referer": "https://sora.chatgpt.com/",
+                "Sec-Ch-Ua": '"Not_A Brand"; v="8", "Chromium"; v="120", "Safari"; v="17"',
+                "Sec-Ch-Ua-Mobile": "?1",
+                "Sec-Ch-Ua-Platform": '"iOS"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin"
             }
 
             kwargs = {
                 "headers": headers,
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -353,7 +396,7 @@ class TokenManager:
                 "headers": headers,
                 "json": {"username": username},
                 "timeout": 30,
-                "impersonate": "chrome"
+                "impersonate": "safari_ios"
             }
 
             if proxy_url:
@@ -401,7 +444,7 @@ class TokenManager:
                 "headers": headers,
                 "json": {"username": username},
                 "timeout": 30,
-                "impersonate": "chrome"
+                "impersonate": "safari_ios"
             }
 
             if proxy_url:
@@ -449,7 +492,7 @@ class TokenManager:
                 "headers": headers,
                 "json": {"invite_code": invite_code},
                 "timeout": 30,
-                "impersonate": "chrome120"  # 使用 chrome120 让库自动处理 UA 等头
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -483,15 +526,26 @@ class TokenManager:
         async with AsyncSession() as session:
             headers = {
                 "Cookie": f"__Secure-next-auth.session-token={session_token}",
-                "Accept": "application/json",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
                 "Origin": "https://sora.chatgpt.com",
-                "Referer": "https://sora.chatgpt.com/"
+                "Pragma": "no-cache",
+                "Priority": "u=1, i",
+                "Referer": "https://sora.chatgpt.com/",
+                "Sec-Ch-Ua": '"Not_A Brand"; v="8", "Chromium"; v="120", "Safari"; v="17"',
+                "Sec-Ch-Ua-Mobile": "?1",
+                "Sec-Ch-Ua-Platform": '"iOS"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin"
             }
 
             kwargs = {
                 "headers": headers,
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -585,7 +639,7 @@ class TokenManager:
                     "refresh_token": refresh_token
                 },
                 "timeout": 30,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -650,6 +704,7 @@ class TokenManager:
                 raise
     
     async def add_token(self, token_value: str,
+                       password: Optional[str] = None,
                        st: Optional[str] = None,
                        rt: Optional[str] = None,
                        client_id: Optional[str] = None,
@@ -666,6 +721,7 @@ class TokenManager:
 
         Args:
             token_value: Access Token
+            password: Account password (optional)
             st: Session Token (optional)
             rt: Refresh Token (optional)
             client_id: Client ID (optional)
@@ -813,6 +869,7 @@ class TokenManager:
         token = Token(
             token=token_value,
             email=email,
+            password=password,
             name=name,
             st=st,
             rt=rt,
@@ -900,6 +957,7 @@ class TokenManager:
 
     async def update_token(self, token_id: int,
                           token: Optional[str] = None,
+                          password: Optional[str] = None,
                           st: Optional[str] = None,
                           rt: Optional[str] = None,
                           client_id: Optional[str] = None,
@@ -910,7 +968,7 @@ class TokenManager:
                           image_concurrency: Optional[int] = None,
                           video_concurrency: Optional[int] = None,
                           skip_status_update: bool = False):
-        """Update token (AT, ST, RT, client_id, proxy_url, remark, image_enabled, video_enabled, concurrency limits)"""
+        """Update token (AT, password, ST, RT, client_id, proxy_url, remark, image_enabled, video_enabled, concurrency limits)"""
         # If token (AT) is updated, decode JWT to get new expiry time
         expiry_time = None
         if token:
@@ -920,7 +978,7 @@ class TokenManager:
             except Exception:
                 pass  # If JWT decode fails, keep expiry_time as None
 
-        await self.db.update_token(token_id, token=token, st=st, rt=rt, client_id=client_id, proxy_url=proxy_url, remark=remark, expiry_time=expiry_time,
+        await self.db.update_token(token_id, token=token, password=password, st=st, rt=rt, client_id=client_id, proxy_url=proxy_url, remark=remark, expiry_time=expiry_time,
                                    image_enabled=image_enabled, video_enabled=video_enabled,
                                    image_concurrency=image_concurrency, video_concurrency=video_concurrency)
 
@@ -966,16 +1024,63 @@ class TokenManager:
         if not token_data:
             return {"valid": False, "message": "Token not found"}
 
+        # Step 1: Try to refresh AT using ST or RT before testing
+        access_token = token_data.token
+        at_refreshed = False
+
+        # Try ST first (preferred)
+        if token_data.st:
+            try:
+                print(f"🔄 尝试用ST刷新AT...")
+                st_result = await self.st_to_at(token_data.st, proxy_url=token_data.proxy_url)
+                if st_result.get("access_token"):
+                    access_token = st_result["access_token"]
+                    # Update AT in database
+                    decoded = await self.decode_jwt(access_token)
+                    expiry_time = datetime.fromtimestamp(decoded.get("exp", 0)) if "exp" in decoded else None
+                    await self.db.update_token(token_id, token=access_token, expiry_time=expiry_time)
+                    at_refreshed = True
+                    print(f"✅ ST刷新AT成功")
+            except Exception as e:
+                print(f"⚠️ ST刷新AT失败: {e}")
+
+        # Try RT if ST failed or not available
+        if not at_refreshed and token_data.rt:
+            try:
+                print(f"🔄 尝试用RT刷新AT...")
+                rt_result = await self.rt_to_at(token_data.rt, client_id=token_data.client_id, proxy_url=token_data.proxy_url)
+                if rt_result.get("access_token"):
+                    access_token = rt_result["access_token"]
+                    new_rt = rt_result.get("refresh_token")
+                    # Update AT and RT in database
+                    decoded = await self.decode_jwt(access_token)
+                    expiry_time = datetime.fromtimestamp(decoded.get("exp", 0)) if "exp" in decoded else None
+                    await self.db.update_token(token_id, token=access_token, rt=new_rt if new_rt else token_data.rt, expiry_time=expiry_time)
+                    at_refreshed = True
+                    print(f"✅ RT刷新AT成功")
+            except Exception as e:
+                print(f"⚠️ RT刷新AT失败: {e}")
+
+        # Step 2: Test the token
         try:
             # Try to get user info from Sora API
-            user_info = await self.get_user_info(token_data.token, token_id)
+            user_info = await self.get_user_info(access_token, token_id)
+
+            # Extract phone verification status from my_info
+            is_phone_verified = None
+            my_info = user_info.get("my_info", {})
+            if my_info:
+                is_phone_verified = my_info.get("is_phone_number_verified")
+
+            # Update phone verification status in database
+            await self.db.update_token_phone_verified(token_id, is_phone_verified)
 
             # Get subscription info from Sora API
             plan_type = None
             plan_title = None
             subscription_end = None
             try:
-                sub_info = await self.get_subscription_info(token_data.token, token_id)
+                sub_info = await self.get_subscription_info(access_token, token_id)
                 plan_type = sub_info.get("plan_type")
                 plan_title = sub_info.get("plan_title")
                 # Parse subscription end time
@@ -986,7 +1091,7 @@ class TokenManager:
                 print(f"Failed to get subscription info: {e}")
 
             # Refresh Sora2 invite code and counts
-            sora2_info = await self.get_sora2_invite_code(token_data.token, token_id)
+            sora2_info = await self.get_sora2_invite_code(access_token, token_id)
             sora2_supported = sora2_info.get("supported", False)
             sora2_invite_code = sora2_info.get("invite_code")
             sora2_redeemed_count = sora2_info.get("redeemed_count", 0)
@@ -996,7 +1101,7 @@ class TokenManager:
             # If Sora2 is supported, get remaining count
             if sora2_supported:
                 try:
-                    remaining_info = await self.get_sora2_remaining_count(token_data.token, token_id)
+                    remaining_info = await self.get_sora2_remaining_count(access_token, token_id)
                     if remaining_info.get("success"):
                         sora2_remaining_count = remaining_info.get("remaining_count", 0)
                 except Exception as e:
@@ -1035,7 +1140,8 @@ class TokenManager:
                 "sora2_invite_code": sora2_invite_code,
                 "sora2_redeemed_count": sora2_redeemed_count,
                 "sora2_total_count": sora2_total_count,
-                "sora2_remaining_count": sora2_remaining_count
+                "sora2_remaining_count": sora2_remaining_count,
+                "is_phone_verified": is_phone_verified
             }
         except Exception as e:
             error_msg = str(e)

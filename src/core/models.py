@@ -8,6 +8,7 @@ class Token(BaseModel):
     id: Optional[int] = None
     token: str
     email: str
+    password: Optional[str] = None  # 账号密码
     name: Optional[str] = ""
     st: Optional[str] = None
     rt: Optional[str] = None
@@ -40,6 +41,10 @@ class Token(BaseModel):
     video_concurrency: int = -1  # 视频并发数限制，-1表示不限制
     # 过期标记
     is_expired: bool = False  # Token是否已过期（401 token_invalidated）
+    # 错误信息
+    last_error: Optional[str] = None  # 最后一次测试失败的原因
+    # 手机验证
+    is_phone_verified: Optional[bool] = None  # 是否绑定手机号
 
 class TokenStats(BaseModel):
     """Token statistics"""

@@ -2,6 +2,7 @@
 api_key = "han1234"
 admin_username = "admin"
 admin_password = "admin"
+jwt_secret_key = "sora2api-secret-key-change-me-in-production"
 
 [sora]
 base_url = "https://sora.chatgpt.com/backend"

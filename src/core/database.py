@@ -199,6 +199,9 @@ class Database:
                     ("client_id", "TEXT"),
                     ("proxy_url", "TEXT"),
                     ("is_expired", "BOOLEAN DEFAULT 0"),
+                    ("last_error", "TEXT"),
+                    ("is_phone_verified", "BOOLEAN"),
+                    ("password", "TEXT"),
                 ]
 
                 for col_name, col_type in columns_to_add:
@@ -286,6 +289,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     token TEXT UNIQUE NOT NULL,
                     email TEXT NOT NULL,
+                    password TEXT,
                     username TEXT NOT NULL,
                     name TEXT NOT NULL,
                     st TEXT,
@@ -312,7 +316,9 @@ class Database:
                     video_enabled BOOLEAN DEFAULT 1,
                     image_concurrency INTEGER DEFAULT -1,
                     video_concurrency INTEGER DEFAULT -1,
-                    is_expired BOOLEAN DEFAULT 0
+                    is_expired BOOLEAN DEFAULT 0,
+                    last_error TEXT,
+                    is_phone_verified BOOLEAN
                 )
             """)
 
@@ -479,12 +485,12 @@ class Database:
         """Add a new token"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
-                INSERT INTO tokens (token, email, username, name, st, rt, client_id, proxy_url, remark, expiry_time, is_active,
+                INSERT INTO tokens (token, email, password, username, name, st, rt, client_id, proxy_url, remark, expiry_time, is_active,
                                    plan_type, plan_title, subscription_end, sora2_supported, sora2_invite_code,
                                    sora2_redeemed_count, sora2_total_count, sora2_remaining_count, sora2_cooldown_until,
                                    image_enabled, video_enabled, image_concurrency, video_concurrency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (token.token, token.email, "", token.name, token.st, token.rt, token.client_id, token.proxy_url,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (token.token, token.email, token.password, "", token.name, token.st, token.rt, token.client_id, token.proxy_url,
                   token.remark, token.expiry_time, token.is_active,
                   token.plan_type, token.plan_title, token.subscription_end,
                   token.sora2_supported, token.sora2_invite_code,
@@ -589,6 +595,22 @@ class Database:
             """, (token_id,))
             await db.commit()
 
+    async def update_token_last_error(self, token_id: int, error_message: Optional[str]):
+        """Update token last error message"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE tokens SET last_error = ? WHERE id = ?
+            """, (error_message, token_id))
+            await db.commit()
+
+    async def update_token_phone_verified(self, token_id: int, is_phone_verified: Optional[bool]):
+        """Update token phone verification status"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE tokens SET is_phone_verified = ? WHERE id = ?
+            """, (is_phone_verified, token_id))
+            await db.commit()
+
     async def update_token_sora2(self, token_id: int, supported: bool, invite_code: Optional[str] = None,
                                 redeemed_count: int = 0, total_count: int = 0, remaining_count: int = 0):
         """Update token Sora2 support info"""
@@ -633,6 +655,7 @@ class Database:
 
     async def update_token(self, token_id: int,
                           token: Optional[str] = None,
+                          password: Optional[str] = None,
                           st: Optional[str] = None,
                           rt: Optional[str] = None,
                           client_id: Optional[str] = None,
@@ -646,7 +669,7 @@ class Database:
                           video_enabled: Optional[bool] = None,
                           image_concurrency: Optional[int] = None,
                           video_concurrency: Optional[int] = None):
-        """Update token (AT, ST, RT, client_id, proxy_url, remark, expiry_time, subscription info, image_enabled, video_enabled)"""
+        """Update token (AT, password, ST, RT, client_id, proxy_url, remark, expiry_time, subscription info, image_enabled, video_enabled)"""
         async with aiosqlite.connect(self.db_path) as db:
             # Build dynamic update query
             updates = []
@@ -655,6 +678,10 @@ class Database:
             if token is not None:
                 updates.append("token = ?")
                 params.append(token)
+
+            if password is not None:
+                updates.append("password = ?")
+                params.append(password)
 
             if st is not None:
                 updates.append("st = ?")

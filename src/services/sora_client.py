@@ -46,6 +46,24 @@ POW_WINDOW_KEYS = [
     "fetch", "setTimeout", "setInterval", "console",
 ]
 
+# Mobile fingerprints and User-Agents for phone binding
+MOBILE_FINGERPRINTS = [
+    "safari17_2_ios",
+    "safari18_0_ios",
+]
+
+MOBILE_USER_AGENTS = [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.6723.90 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.81 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.81 Mobile Safari/537.36",
+]
+
 class SoraClient:
     """Sora API client with proxy support"""
 
@@ -300,7 +318,7 @@ class SoraClient:
             kwargs = {
                 "headers": headers,
                 "timeout": self.timeout,
-                "impersonate": "chrome"  # 自动生成 User-Agent 和浏览器指纹
+                "impersonate": "safari_ios"  # 模拟 iOS Safari 浏览器指纹
             }
 
             if proxy_url:
@@ -555,7 +573,7 @@ class SoraClient:
             kwargs = {
                 "headers": headers,
                 "timeout": self.timeout,
-                "impersonate": "chrome"
+                "impersonate": "safari_ios"
             }
 
             if proxy_url:
@@ -628,7 +646,7 @@ class SoraClient:
         kwargs = {
             "json": json_data,
             "timeout": 30,
-            "impersonate": "chrome"
+            "impersonate": "safari_ios"
         }
 
         if proxy_url:
@@ -744,7 +762,7 @@ class SoraClient:
 
         kwargs = {
             "timeout": self.timeout,
-            "impersonate": "chrome"
+            "impersonate": "safari_ios"
         }
 
         if proxy_url:
@@ -847,7 +865,7 @@ class SoraClient:
             kwargs = {
                 "headers": headers,
                 "timeout": self.timeout,
-                "impersonate": "chrome"
+                "impersonate": "safari_ios"
             }
 
             if proxy_url:
@@ -933,3 +951,192 @@ class SoraClient:
 
         result = await self._make_request("POST", "/nf/create/storyboard", token, json_data=json_data, add_sentinel_token=True)
         return result.get("id")
+
+    # ==================== Phone Binding Methods ====================
+
+    async def send_phone_verification_code(self, phone_number: str, token: str, token_id: Optional[int] = None) -> Dict[str, Any]:
+        """Send phone verification code for phone binding
+
+        Args:
+            phone_number: Phone number with country code (e.g., +1234567890)
+            token: Access token
+            token_id: Token ID for getting token-specific proxy (optional)
+
+        Returns:
+            Dict with success status and message
+
+        Raises:
+            Exception: If sending fails
+        """
+        import uuid as uuid_module
+        proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+
+        # Phone binding endpoint - use hardcoded URL like sora-phone-bind
+        url = "https://sora.chatgpt.com/backend/project_y/phone_number/enroll/start"
+
+        json_data = {
+            "phone_number": phone_number,
+            "verification_expiry_window_ms": None
+        }
+
+        # Random mobile fingerprint and User-Agent
+        fingerprint = random.choice(MOBILE_FINGERPRINTS)
+        user_agent = random.choice(MOBILE_USER_AGENTS)
+
+        # Mobile headers required for phone binding
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": user_agent,
+            "oai-device-id": str(uuid_module.uuid4()),
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Origin": "https://sora.chatgpt.com",
+            "Pragma": "no-cache",
+            "Referer": "https://sora.chatgpt.com/",
+            "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+            "Sec-Ch-Ua-Mobile": "?1",
+            "Sec-Ch-Ua-Platform": '"iOS"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Priority": "u=1, i"
+        }
+
+        # Print request info
+        print(f"\n========== 发送验证码请求 ==========")
+        print(f"URL: {url}")
+        print(f"Fingerprint: {fingerprint}")
+        print(f"User-Agent: {user_agent}")
+        print(f"Proxy: {proxy_url}")
+        print(f"Body: {json_data}")
+
+        async with AsyncSession(impersonate=fingerprint) as session:
+            kwargs = {
+                "headers": headers,
+                "json": json_data,
+                "timeout": 30
+            }
+
+            if proxy_url:
+                kwargs["proxy"] = proxy_url
+
+            start_time = time.time()
+            response = await session.post(url, **kwargs)
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Print raw response
+            print(f"\n========== 原始响应 ==========")
+            print(f"Status: {response.status_code}")
+            print(f"Headers: {dict(response.headers)}")
+            print(f"Body: {response.text}")
+            print(f"Duration: {duration_ms:.2f}ms")
+            print(f"================================\n")
+
+            if response.status_code == 200:
+                return {"success": True, "message": "验证码已发送"}
+
+            # Parse error
+            error_text = response.text.lower()
+            if "already verified" in error_text or "phone number already" in error_text:
+                return {"success": False, "message": "该手机号已被其他账号绑定", "error_code": "phone_used"}
+
+            error_msg = f"发送验证码失败: {response.status_code} - {response.text}"
+            return {"success": False, "message": error_msg}
+
+    async def submit_phone_verification_code(self, phone_number: str, verification_code: str, token: str, token_id: Optional[int] = None) -> Dict[str, Any]:
+        """Submit phone verification code to complete binding
+
+        Args:
+            phone_number: Phone number with country code (e.g., +1234567890)
+            verification_code: 6-digit verification code
+            token: Access token
+            token_id: Token ID for getting token-specific proxy (optional)
+
+        Returns:
+            Dict with success status and message
+
+        Raises:
+            Exception: If binding fails
+        """
+        import uuid as uuid_module
+        proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+
+        # Phone binding endpoint - use hardcoded URL like sora-phone-bind
+        url = "https://sora.chatgpt.com/backend/project_y/phone_number/enroll/finish"
+
+        json_data = {
+            "phone_number": phone_number,
+            "verification_code": verification_code
+        }
+
+        # Random mobile fingerprint and User-Agent
+        fingerprint = random.choice(MOBILE_FINGERPRINTS)
+        user_agent = random.choice(MOBILE_USER_AGENTS)
+
+        # Mobile headers required for phone binding
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": user_agent,
+            "oai-device-id": str(uuid_module.uuid4()),
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Origin": "https://sora.chatgpt.com",
+            "Pragma": "no-cache",
+            "Referer": "https://sora.chatgpt.com/",
+            "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+            "Sec-Ch-Ua-Mobile": "?1",
+            "Sec-Ch-Ua-Platform": '"iOS"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Priority": "u=1, i"
+        }
+
+        async with AsyncSession(impersonate=fingerprint) as session:
+            kwargs = {
+                "headers": headers,
+                "json": json_data,
+                "timeout": 30
+            }
+
+            if proxy_url:
+                kwargs["proxy"] = proxy_url
+
+            # Log request
+            debug_logger.log_request(
+                method="POST",
+                url=url,
+                headers=headers,
+                body=json_data,
+                files=None,
+                proxy=proxy_url
+            )
+
+            start_time = time.time()
+            response = await session.post(url, **kwargs)
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Log response
+            debug_logger.log_response(
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                body=response.text if response.text else "No content",
+                duration_ms=duration_ms
+            )
+
+            if response.status_code == 200:
+                return {"success": True, "message": "手机号绑定成功"}
+
+            error_msg = f"绑定失败: {response.status_code} - {response.text}"
+            debug_logger.log_error(
+                error_message=error_msg,
+                status_code=response.status_code,
+                response_text=response.text
+            )
+            return {"success": False, "message": error_msg}

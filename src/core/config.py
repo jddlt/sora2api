@@ -106,6 +106,10 @@ class Config:
         self._admin_password = value
         self._config["global"]["admin_password"] = value
 
+    @property
+    def jwt_secret_key(self) -> str:
+        return self._config["global"].get("jwt_secret_key", "default-secret-key-change-me")
+
     def set_admin_password_from_db(self, password: str):
         """Set admin password from database"""
         self._admin_password = password
