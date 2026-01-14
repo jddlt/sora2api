@@ -138,6 +138,13 @@ class TokenRefreshConfig(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+class FreeProxyConfig(BaseModel):
+    """Free proxy pool configuration"""
+    id: int = 1
+    free_proxy_enabled: bool = False  # Whether to enable free proxy pool auto-binding
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
 # API Request/Response models
 class ChatMessage(BaseModel):
     role: str

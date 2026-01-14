@@ -287,7 +287,7 @@ class GenerationHandler:
         """
         from curl_cffi.requests import AsyncSession
 
-        proxy_url = await self.load_balancer.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.load_balancer.proxy_manager.get_proxy_url()
 
         kwargs = {
             "timeout": 30,
@@ -456,7 +456,18 @@ class GenerationHandler:
                     yield self._format_stream_chunk(
                         reasoning_content="**Generation Process Begins**\n\nInitializing generation request...\n"
                     )
-            
+
+            # Create initial log entry BEFORE API call (so failures are also logged)
+            log_id = await self._log_request(
+                token_obj.id,
+                f"generate_{model_config['type']}",
+                {"model": model, "prompt": prompt, "has_image": image is not None},
+                {},  # Empty response initially
+                -1,  # -1 means in-progress
+                -1.0,  # -1.0 means in-progress
+                task_id=None  # task_id not yet available
+            )
+
             if is_video:
                 # Get n_frames from model configuration
                 n_frames = model_config.get("n_frames", 300)  # Default to 300 frames (10s)
@@ -518,16 +529,13 @@ class GenerationHandler:
             )
             await self.db.create_task(task)
 
-            # Create initial log entry (status_code=-1, duration=-1.0 means in-progress)
-            log_id = await self._log_request(
-                token_obj.id,
-                f"generate_{model_config['type']}",
-                {"model": model, "prompt": prompt, "has_image": image is not None},
-                {},  # Empty response initially
-                -1,  # -1 means in-progress
-                -1.0,  # -1.0 means in-progress
-                task_id=task_id
-            )
+            # Update log entry with task_id now that we have it
+            if log_id:
+                await self.db.update_request_log(
+                    log_id,
+                    response_body=json.dumps({"task_id": task_id, "status": "processing"}),
+                    task_id=task_id
+                )
 
             # Record usage
             await self.token_manager.record_usage(token_obj.id, is_video=is_video)
@@ -1568,6 +1576,8 @@ class GenerationHandler:
         4. Poll for results
         5. Return video result
         """
+        start_time = time.time()
+        log_id = None
         token_obj = await self.load_balancer.select_token(for_video_generation=True)
         if not token_obj:
             raise Exception("No available tokens for remix generation")
@@ -1613,6 +1623,17 @@ class GenerationHandler:
             )
             await self.db.create_task(task)
 
+            # Create initial log entry
+            log_id = await self._log_request(
+                token_obj.id,
+                "remix_video",
+                {"remix_target_id": remix_target_id, "prompt": clean_prompt},
+                {},
+                -1,  # -1 means in-progress
+                -1.0,
+                task_id=task_id
+            )
+
             # Record usage
             await self.token_manager.record_usage(token_obj.id, is_video=True)
 
@@ -1623,7 +1644,39 @@ class GenerationHandler:
             # Record success
             await self.token_manager.record_success(token_obj.id, is_video=True)
 
+            # Update log with success
+            duration = time.time() - start_time
+            if log_id:
+                task_info = await self.db.get_task(task_id)
+                response_data = {
+                    "task_id": task_id,
+                    "status": "success",
+                    "remix_target_id": remix_target_id
+                }
+                if task_info and task_info.result_urls:
+                    try:
+                        result_urls = json.loads(task_info.result_urls)
+                        response_data["result_urls"] = result_urls
+                    except:
+                        response_data["result_urls"] = task_info.result_urls
+                await self.db.update_request_log(
+                    log_id,
+                    response_body=json.dumps(response_data),
+                    status_code=200,
+                    duration=duration
+                )
+
         except Exception as e:
+            # Update log with error
+            duration = time.time() - start_time
+            if log_id:
+                await self.db.update_request_log(
+                    log_id,
+                    response_body=json.dumps({"error": str(e)}),
+                    status_code=500,
+                    duration=duration
+                )
+
             # Record error (check if it's an overload error)
             if token_obj:
                 error_str = str(e).lower()

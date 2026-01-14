@@ -24,18 +24,20 @@ proxy_manager: ProxyManager = None
 db: Database = None
 generation_handler = None
 concurrency_manager: ConcurrencyManager = None
+free_proxy_manager = None
 
 # JWT token expiration (90 days / 3 months)
 JWT_EXPIRATION_DAYS = 90
 
-def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, gh=None, cm: ConcurrencyManager = None):
+def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, gh=None, cm: ConcurrencyManager = None, fpm=None):
     """Set dependencies"""
-    global token_manager, proxy_manager, db, generation_handler, concurrency_manager
+    global token_manager, proxy_manager, db, generation_handler, concurrency_manager, free_proxy_manager
     token_manager = tm
     proxy_manager = pm
     db = database
     generation_handler = gh
     concurrency_manager = cm
+    free_proxy_manager = fpm
 
 def create_admin_jwt_token(username: str) -> str:
     """Create a JWT token for admin authentication"""
@@ -208,6 +210,7 @@ async def get_tokens(token: str = Depends(verify_admin_token)) -> List[dict]:
         result.append({
             "id": token.id,
             "token": token.token,  # 完整的Access Token
+            "password": token.password,  # 账号密码
             "st": token.st,  # 完整的Session Token
             "rt": token.rt,  # 完整的Refresh Token
             "client_id": token.client_id,  # Client ID
@@ -1297,3 +1300,177 @@ async def download_debug_logs(token: str = Depends(verify_admin_token)):
         filename="logs.txt",
         media_type="text/plain"
     )
+
+# Free Proxy Pool Management endpoints
+@router.get("/api/free-proxy/config")
+async def get_free_proxy_config(token: str = Depends(verify_admin_token)):
+    """Get free proxy pool configuration"""
+    free_proxy_config = await db.get_free_proxy_config()
+    return {
+        "enabled": free_proxy_config.free_proxy_enabled,
+        "proxy_count": len(free_proxy_manager._proxies) if free_proxy_manager else 0,
+        "healthy_count": sum(1 for p in free_proxy_manager._proxies.values() if p.is_healthy) if free_proxy_manager else 0
+    }
+
+@router.post("/api/free-proxy/enabled")
+async def update_free_proxy_enabled(
+    request: dict,
+    token: str = Depends(verify_admin_token)
+):
+    """Enable or disable free proxy pool"""
+    try:
+        enabled = request.get("enabled", False)
+
+        # Update database
+        await db.update_free_proxy_config(enabled)
+
+        # Update proxy manager
+        if enabled:
+            await free_proxy_manager.initialize()
+            proxy_manager.set_free_proxy_manager(free_proxy_manager, enabled=True)
+        else:
+            proxy_manager.set_free_proxy_manager(free_proxy_manager, enabled=False)
+
+        return {
+            "success": True,
+            "message": f"Free proxy pool {'enabled' if enabled else 'disabled'} successfully",
+            "enabled": enabled,
+            "proxy_count": len(free_proxy_manager._proxies) if enabled else 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update free proxy pool status: {str(e)}")
+
+@router.get("/api/free-proxy/stats")
+async def get_free_proxy_stats(token: str = Depends(verify_admin_token)):
+    """Get free proxy pool statistics"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    return free_proxy_manager.get_stats()
+
+@router.get("/api/free-proxy/list")
+async def get_free_proxy_list(token: str = Depends(verify_admin_token)):
+    """Get list of all proxies in the pool"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    return {
+        "proxies": free_proxy_manager.get_proxy_list()
+    }
+
+@router.post("/api/free-proxy/refresh")
+async def refresh_free_proxy_list(token: str = Depends(verify_admin_token)):
+    """Manually refresh the proxy list from proxifly"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    try:
+        await free_proxy_manager._refresh_proxy_list()
+        return {
+            "success": True,
+            "message": "Proxy list refreshed successfully",
+            "proxy_count": len(free_proxy_manager._proxies)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh proxy list: {str(e)}")
+
+@router.post("/api/free-proxy/health-check")
+async def run_health_check(token: str = Depends(verify_admin_token)):
+    """Run health check on all proxies"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    try:
+        results = await free_proxy_manager.batch_health_check(max_concurrent=20)
+        healthy_count = sum(1 for v in results.values() if v)
+        return {
+            "success": True,
+            "message": "Health check completed",
+            "total": len(results),
+            "healthy": healthy_count,
+            "unhealthy": len(results) - healthy_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to run health check: {str(e)}")
+
+@router.post("/api/tokens/{token_id}/rebind-proxy")
+async def rebind_token_proxy(
+    token_id: int,
+    token: str = Depends(verify_admin_token)
+):
+    """Manually rebind a new proxy to a token"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    if not proxy_manager.free_proxy_enabled:
+        raise HTTPException(status_code=400, detail="Free proxy pool is not enabled")
+
+    try:
+        db_token = await db.get_token(token_id)
+        if not db_token:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        exclude_urls = [db_token.proxy_url] if db_token.proxy_url else []
+        new_proxy = await free_proxy_manager.bind_proxy_to_token(token_id, exclude_urls=exclude_urls)
+
+        if new_proxy:
+            return {
+                "success": True,
+                "message": f"Proxy rebound successfully",
+                "new_proxy": new_proxy
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No healthy proxy available"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rebind proxy: {str(e)}")
+
+@router.post("/api/tokens/{token_id}/bind-fastest-proxy")
+async def bind_fastest_proxy(
+    token_id: int,
+    token: str = Depends(verify_admin_token)
+):
+    """Test 100 proxies and bind the fastest working one to a token"""
+    if not free_proxy_manager:
+        raise HTTPException(status_code=400, detail="Free proxy manager not initialized")
+
+    try:
+        db_token = await db.get_token(token_id)
+        if not db_token:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        result = await free_proxy_manager.bind_fastest_proxy_to_token(token_id)
+
+        if result:
+            return {
+                "success": True,
+                "message": f"已绑定最快代理",
+                "proxy_url": result["proxy_url"],
+                "response_time": result["response_time"]
+            }
+        else:
+            return {
+                "success": False,
+                "message": "未找到可用代理"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to bind proxy: {str(e)}")
+
+@router.post("/api/tokens/clear-all-proxies")
+async def clear_all_token_proxies(token: str = Depends(verify_admin_token)):
+    """Clear proxy_url for all tokens"""
+    try:
+        await db.clear_all_token_proxies()
+        return {
+            "success": True,
+            "message": "已清除所有账号的代理"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear proxies: {str(e)}")
+

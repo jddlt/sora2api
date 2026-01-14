@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
-from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, WatermarkFreeConfig, CacheConfig, GenerationConfig, TokenRefreshConfig
+from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, WatermarkFreeConfig, CacheConfig, GenerationConfig, TokenRefreshConfig, FreeProxyConfig
 
 class Database:
     """SQLite database manager"""
@@ -172,6 +172,22 @@ class Database:
                 VALUES (1, ?)
             """, (at_auto_refresh_enabled,))
 
+        # Ensure free_proxy_config has a row
+        cursor = await db.execute("SELECT COUNT(*) FROM free_proxy_config")
+        count = await cursor.fetchone()
+        if count[0] == 0:
+            # Get free proxy config from config_dict if provided, otherwise use defaults
+            free_proxy_enabled = False
+
+            if config_dict:
+                free_proxy_config = config_dict.get("free_proxy", {})
+                free_proxy_enabled = free_proxy_config.get("free_proxy_enabled", False)
+
+            await db.execute("""
+                INSERT INTO free_proxy_config (id, free_proxy_enabled)
+                VALUES (1, ?)
+            """, (free_proxy_enabled,))
+
 
     async def check_and_migrate_db(self, config_dict: dict = None):
         """Check database integrity and perform migrations if needed
@@ -276,6 +292,18 @@ class Database:
             # Ensure all config tables have their default rows
             # Pass config_dict if available to initialize from setting.toml
             await self._ensure_config_rows(db, config_dict)
+
+            # Create free_proxy_config table if it doesn't exist (migration for existing databases)
+            if not await self._table_exists(db, "free_proxy_config"):
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS free_proxy_config (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        free_proxy_enabled BOOLEAN DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                print("  ✓ Created free_proxy_config table")
 
             await db.commit()
             print("Database migration check completed.")
@@ -439,6 +467,16 @@ class Database:
                 CREATE TABLE IF NOT EXISTS token_refresh_config (
                     id INTEGER PRIMARY KEY DEFAULT 1,
                     at_auto_refresh_enabled BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Free proxy pool config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS free_proxy_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    free_proxy_enabled BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -651,6 +689,12 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("DELETE FROM token_stats WHERE token_id = ?", (token_id,))
             await db.execute("DELETE FROM tokens WHERE id = ?", (token_id,))
+            await db.commit()
+
+    async def clear_all_token_proxies(self):
+        """Clear proxy_url for all tokens"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE tokens SET proxy_url = NULL")
             await db.commit()
 
     async def update_token(self, token_id: int,
@@ -922,7 +966,8 @@ class Database:
             return cursor.lastrowid
 
     async def update_request_log(self, log_id: int, response_body: Optional[str] = None,
-                                 status_code: Optional[int] = None, duration: Optional[float] = None):
+                                 status_code: Optional[int] = None, duration: Optional[float] = None,
+                                 task_id: Optional[str] = None):
         """Update request log with completion data"""
         async with aiosqlite.connect(self.db_path) as db:
             updates = []
@@ -937,6 +982,9 @@ class Database:
             if duration is not None:
                 updates.append("duration = ?")
                 params.append(duration)
+            if task_id is not None:
+                updates.append("task_id = ?")
+                params.append(task_id)
 
             if updates:
                 updates.append("updated_at = CURRENT_TIMESTAMP")
@@ -1156,5 +1204,26 @@ class Database:
                 SET at_auto_refresh_enabled = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = 1
             """, (at_auto_refresh_enabled,))
+            await db.commit()
+
+    # Free proxy config operations
+    async def get_free_proxy_config(self) -> FreeProxyConfig:
+        """Get free proxy pool configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM free_proxy_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return FreeProxyConfig(**dict(row))
+            return FreeProxyConfig(free_proxy_enabled=False)
+
+    async def update_free_proxy_config(self, free_proxy_enabled: bool):
+        """Update free proxy pool configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE free_proxy_config
+                SET free_proxy_enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = 1
+            """, (free_proxy_enabled,))
             await db.commit()
 

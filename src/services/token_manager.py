@@ -61,7 +61,7 @@ class TokenManager:
 
     async def get_user_info(self, access_token: str, token_id: Optional[int] = None, proxy_url: Optional[str] = None) -> dict:
         """Get user info from Sora API"""
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
 
         async with AsyncSession() as session:
             headers = {
@@ -92,7 +92,7 @@ class TokenManager:
                 kwargs["proxy"] = proxy_url
 
             response = await session.get(
-                f"{config.sora_base_url}/me",
+                f"{config.sora_base_url}/project_y/v2/me",
                 **kwargs
             )
 
@@ -127,7 +127,7 @@ class TokenManager:
             }
         """
         print(f"🔍 开始获取订阅信息...")
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
 
         headers = {
             "Authorization": f"Bearer {token}"
@@ -191,7 +191,7 @@ class TokenManager:
 
     async def get_sora2_invite_code(self, access_token: str, token_id: Optional[int] = None, proxy_url: Optional[str] = None) -> dict:
         """Get Sora2 invite code"""
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
 
         print(f"🔍 开始获取Sora2邀请码...")
 
@@ -312,7 +312,7 @@ class TokenManager:
                 "access_resets_in_seconds": 46833
             }
         """
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id, proxy_url)
 
         print(f"🔍 开始获取Sora2剩余次数...")
 
@@ -382,7 +382,7 @@ class TokenManager:
         Returns:
             True if username is available, False otherwise
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         print(f"🔍 检查用户名是否可用: {username}")
 
@@ -430,7 +430,7 @@ class TokenManager:
         Returns:
             User profile information after setting username
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         print(f"🔍 开始设置用户名: {username}")
 
@@ -470,7 +470,7 @@ class TokenManager:
     async def activate_sora2_invite(self, access_token: str, invite_code: str) -> dict:
         """Activate Sora2 with invite code"""
         import uuid
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         print(f"🔍 开始激活Sora2邀请码: {invite_code}")
         print(f"🔑 Access Token 前缀: {access_token[:50]}...")
@@ -521,7 +521,7 @@ class TokenManager:
     async def st_to_at(self, session_token: str, proxy_url: Optional[str] = None) -> dict:
         """Convert Session Token to Access Token"""
         debug_logger.log_info(f"[ST_TO_AT] 开始转换 Session Token 为 Access Token...")
-        proxy_url = await self.proxy_manager.get_proxy_url(proxy_url=proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(proxy_url=proxy_url)
 
         async with AsyncSession() as session:
             headers = {
@@ -622,7 +622,7 @@ class TokenManager:
 
         debug_logger.log_info(f"[RT_TO_AT] 开始转换 Refresh Token 为 Access Token...")
         debug_logger.log_info(f"[RT_TO_AT] 使用 Client ID: {effective_client_id[:20]}...")
-        proxy_url = await self.proxy_manager.get_proxy_url(proxy_url=proxy_url)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(proxy_url=proxy_url)
 
         async with AsyncSession() as session:
             headers = {
@@ -1070,7 +1070,17 @@ class TokenManager:
             is_phone_verified = None
             my_info = user_info.get("my_info", {})
             if my_info:
-                is_phone_verified = my_info.get("is_phone_number_verified")
+                phone_status = my_info.get("is_phone_number_verified")
+                # Handle different API response values:
+                # - True/False: boolean
+                # - "set": string meaning phone is set (treat as True)
+                # - None: unknown
+                if phone_status == "set" or phone_status is True:
+                    is_phone_verified = True
+                elif phone_status is False:
+                    is_phone_verified = False
+                else:
+                    is_phone_verified = None
 
             # Update phone verification status in database
             await self.db.update_token_phone_verified(token_id, is_phone_verified)

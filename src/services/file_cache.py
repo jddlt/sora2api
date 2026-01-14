@@ -152,7 +152,7 @@ class FileCache:
             # Get proxy if available (token-specific or global)
             proxy_url = None
             if self.proxy_manager:
-                proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+                proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id)
 
             # Download with proxy support
             async with AsyncSession() as session:

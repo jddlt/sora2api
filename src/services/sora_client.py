@@ -178,7 +178,7 @@ class SoraClient:
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         pow_token = self._get_pow_token(user_agent)
 
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         # Request sentinel/req endpoint
         url = f"{self.CHATGPT_BASE_URL}/backend-api/sentinel/req"
@@ -299,7 +299,7 @@ class SoraClient:
             add_sentinel_token: Whether to add openai-sentinel-token header (only for generation requests)
             token_id: Token ID for getting token-specific proxy (optional)
         """
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id)
 
         headers = {
             "Authorization": f"Bearer {token}"
@@ -561,7 +561,7 @@ class SoraClient:
         Returns:
             True if deletion was successful
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         headers = {
             "Authorization": f"Bearer {token}"
@@ -632,7 +632,7 @@ class SoraClient:
         Raises:
             Exception: If parse fails or token is invalid
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         # Construct the share URL
         share_url = f"https://sora.chatgpt.com/p/{post_id}"
@@ -758,7 +758,7 @@ class SoraClient:
         Returns:
             Image file bytes
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         kwargs = {
             "timeout": self.timeout,
@@ -853,7 +853,7 @@ class SoraClient:
         Returns:
             True if successful
         """
-        proxy_url = await self.proxy_manager.get_proxy_url()
+        proxy_url, _ = await self.proxy_manager.get_proxy_url()
 
         headers = {
             "Authorization": f"Bearer {token}"
@@ -969,7 +969,7 @@ class SoraClient:
             Exception: If sending fails
         """
         import uuid as uuid_module
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id)
 
         # Phone binding endpoint - use hardcoded URL like sora-phone-bind
         url = "https://sora.chatgpt.com/backend/project_y/phone_number/enroll/start"
@@ -1062,7 +1062,7 @@ class SoraClient:
             Exception: If binding fails
         """
         import uuid as uuid_module
-        proxy_url = await self.proxy_manager.get_proxy_url(token_id)
+        proxy_url, _ = await self.proxy_manager.get_proxy_url(token_id)
 
         # Phone binding endpoint - use hardcoded URL like sora-phone-bind
         url = "https://sora.chatgpt.com/backend/project_y/phone_number/enroll/finish"

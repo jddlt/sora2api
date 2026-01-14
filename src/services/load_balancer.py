@@ -1,6 +1,6 @@
 """Load balancing module"""
-import random
-from typing import Optional
+import asyncio
+from typing import Optional, List
 from ..core.models import Token
 from ..core.config import config
 from .token_manager import TokenManager
@@ -9,17 +9,47 @@ from .concurrency_manager import ConcurrencyManager
 from ..core.logger import debug_logger
 
 class LoadBalancer:
-    """Token load balancer with random selection and image generation lock"""
+    """Token load balancer with round-robin selection and image generation lock"""
 
     def __init__(self, token_manager: TokenManager, concurrency_manager: Optional[ConcurrencyManager] = None):
         self.token_manager = token_manager
         self.concurrency_manager = concurrency_manager
         # Use image timeout from config as lock timeout
         self.token_lock = TokenLock(lock_timeout=config.image_timeout)
+        # Round-robin indices for load balancing
+        self._image_index = 0
+        self._video_index = 0
+        self._index_lock = asyncio.Lock()
+
+    async def _round_robin_select(self, tokens: List[Token], for_image: bool = True) -> Optional[Token]:
+        """
+        Round-robin selection from available tokens
+
+        Args:
+            tokens: List of available tokens
+            for_image: True for image, False for video (separate indices)
+
+        Returns:
+            Selected token or None
+        """
+        if not tokens:
+            return None
+
+        async with self._index_lock:
+            if for_image:
+                idx = self._image_index % len(tokens)
+                self._image_index = (self._image_index + 1) % len(tokens)
+            else:
+                idx = self._video_index % len(tokens)
+                self._video_index = (self._video_index + 1) % len(tokens)
+
+            selected = tokens[idx]
+            debug_logger.log_info(f"[LOAD_BALANCER] 轮询选择 Token {selected.id} ({selected.email}), 索引: {idx}/{len(tokens)}")
+            return selected
 
     async def select_token(self, for_image_generation: bool = False, for_video_generation: bool = False, require_pro: bool = False) -> Optional[Token]:
         """
-        Select a token using random load balancing
+        Select a token using round-robin load balancing
 
         Args:
             for_image_generation: If True, only select tokens that are not locked for image generation and have image_enabled=True
@@ -112,8 +142,8 @@ class LoadBalancer:
             if not available_tokens:
                 return None
 
-            # Random selection from available tokens
-            return random.choice(available_tokens)
+            # Round-robin selection from available tokens
+            return await self._round_robin_select(available_tokens, for_image=True)
         else:
             # For video generation, check concurrency limit
             if for_video_generation and self.concurrency_manager:
@@ -123,7 +153,7 @@ class LoadBalancer:
                         available_tokens.append(token)
                 if not available_tokens:
                     return None
-                return random.choice(available_tokens)
+                return await self._round_robin_select(available_tokens, for_image=False)
             else:
                 # For video generation without concurrency manager, no additional filtering
-                return random.choice(active_tokens)
+                return await self._round_robin_select(active_tokens, for_image=False)

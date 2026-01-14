@@ -15,6 +15,7 @@ from .services.load_balancer import LoadBalancer
 from .services.sora_client import SoraClient
 from .services.generation_handler import GenerationHandler
 from .services.concurrency_manager import ConcurrencyManager
+from .services.free_proxy_manager import FreeProxyManager
 from .api import routes as api_routes
 from .api import admin as admin_routes
 
@@ -38,6 +39,7 @@ app.add_middleware(
 db = Database()
 token_manager = TokenManager(db)
 proxy_manager = ProxyManager(db)
+free_proxy_manager = FreeProxyManager(db)
 concurrency_manager = ConcurrencyManager()
 load_balancer = LoadBalancer(token_manager, concurrency_manager)
 sora_client = SoraClient(proxy_manager)
@@ -45,7 +47,7 @@ generation_handler = GenerationHandler(sora_client, token_manager, load_balancer
 
 # Set dependencies for route modules
 api_routes.set_generation_handler(generation_handler)
-admin_routes.set_dependencies(token_manager, proxy_manager, db, generation_handler, concurrency_manager)
+admin_routes.set_dependencies(token_manager, proxy_manager, db, generation_handler, concurrency_manager, free_proxy_manager)
 
 # Include routers
 app.include_router(api_routes.router)
@@ -132,6 +134,15 @@ async def startup_event():
     # Load token refresh configuration from database
     token_refresh_config = await db.get_token_refresh_config()
     config.set_at_auto_refresh_enabled(token_refresh_config.at_auto_refresh_enabled)
+
+    # Load free proxy configuration and initialize
+    free_proxy_config = await db.get_free_proxy_config()
+    if free_proxy_config.free_proxy_enabled:
+        await free_proxy_manager.initialize()
+        proxy_manager.set_free_proxy_manager(free_proxy_manager, enabled=True)
+        print(f"✓ Free proxy pool initialized with {len(free_proxy_manager._proxies)} proxies")
+    else:
+        proxy_manager.set_free_proxy_manager(free_proxy_manager, enabled=False)
 
     # Initialize concurrency manager with all tokens
     all_tokens = await db.get_all_tokens()
